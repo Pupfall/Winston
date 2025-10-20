@@ -1,0 +1,162 @@
+// Winston Database Schema - MVP
+// Supports SQLite (dev) and PostgreSQL (prod)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USERS & AUTHENTICATION
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  // Relations
+  apiKeys              ApiKey[]
+  registrarCredentials RegistrarCredential[]
+  domains              Domain[]
+  purchases            Purchase[]
+  auditLogs            AuditLog[]
+
+  @@index([email])
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  userId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([key])
+  @@index([userId])
+}
+
+model RegistrarCredential {
+  id        String            @id @default(cuid())
+  userId    String
+  registrar RegistrarProvider
+  encJson   String // Encrypted JSON with API keys/secrets
+  createdAt DateTime          @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, registrar])
+  @@index([userId])
+}
+
+enum RegistrarProvider {
+  PORKBUN
+  NAMECHEAP
+}
+
+// ============================================
+// DOMAINS & PURCHASES
+// ============================================
+
+model Domain {
+  id         String       @id @default(cuid())
+  userId     String
+  name       String       @unique
+  registrar  String
+  status     DomainStatus @default(AVAILABLE)
+  autoRenew  Boolean      @default(true)
+  privacy    Boolean      @default(true)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchases Purchase[]
+
+  @@index([name])
+  @@index([userId])
+  @@index([status])
+}
+
+enum DomainStatus {
+  AVAILABLE
+  PURCHASED
+  DNS_APPLIED
+  ERROR
+}
+
+model Purchase {
+  id         String   @id @default(cuid())
+  userId     String
+  domainId   String
+  registrar  String
+  orderId    String   @unique
+  years      Int      @default(1)
+  totalUsd   Decimal  @default(0)
+  premium    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([userId])
+  @@index([domainId])
+  @@index([createdAt])
+}
+
+// ============================================
+// AUDIT & LOGGING
+// ============================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  verb        String // "domain.search", "domain.purchase", "dns.apply", etc.
+  payloadJson String // Full request/response context
+  createdAt   DateTime @default(now())
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([verb])
+  @@index([createdAt])
+}
+
+// ============================================
+// IDEMPOTENCY & RATE LIMITING
+// ============================================
+
+model Idem {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  digest       String
+  responseJson String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([key])
+  @@index([expiresAt])
+}
+
+model DailySpend {
+  id         String   @id @default(cuid())
+  accountKey String
+  day        DateTime // Date only (YYYY-MM-DD)
+  totalUsd   Decimal  @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([accountKey, day])
+  @@index([accountKey])
+  @@index([day])
+}

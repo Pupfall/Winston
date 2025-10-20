@@ -1,0 +1,331 @@
+openapi: 3.1.0
+info:
+  title: Winston Domain API
+  description: Domain search and registration API for GPT Actions
+  version: 1.0.0
+  contact:
+    name: Winston API Support
+
+servers:
+  - url: https://winston-api.vercel.app
+    description: Production server
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: Use your Winston API key as the bearer token
+
+  schemas:
+    DomainSearchResult:
+      type: object
+      required:
+        - domain
+        - available
+        - price_usd
+        - premium
+      properties:
+        domain:
+          type: string
+          description: Fully qualified domain name
+          example: example.com
+        available:
+          type: boolean
+          description: Whether the domain is available for registration
+          example: true
+        price_usd:
+          type: number
+          format: float
+          description: Registration price in USD
+          example: 12.99
+        premium:
+          type: boolean
+          description: Whether this is a premium domain with higher pricing
+          example: false
+
+    SearchRequest:
+      type: object
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+          description: Search prompt describing the desired domain
+          example: AI chatbot for healthcare
+          minLength: 1
+        tlds:
+          type: array
+          description: List of top-level domains to search (e.g., com, net, org)
+          items:
+            type: string
+            example: com
+          default: [com, net, org, io, app]
+          example: [com, io, app]
+
+    SearchResponse:
+      type: object
+      required:
+        - domains
+      properties:
+        domains:
+          type: array
+          description: List of domain search results
+          items:
+            $ref: '#/components/schemas/DomainSearchResult'
+
+    BuyRequest:
+      type: object
+      required:
+        - domain
+        - confirm_code
+      properties:
+        domain:
+          type: string
+          description: The domain name to purchase
+          example: example.com
+          pattern: '^[a-z0-9-]+\.[a-z]{2,}$'
+        confirm_code:
+          type: string
+          description: Confirmation code from user acknowledging purchase
+          example: CONFIRM_PURCHASE
+          minLength: 1
+
+    BuyResponse:
+      type: object
+      required:
+        - status
+        - order_id
+      properties:
+        status:
+          type: string
+          description: Purchase status
+          enum:
+            - success
+            - failed
+            - unavailable
+            - price_drift
+            - exceeds_limit
+            - daily_limit
+          example: success
+        order_id:
+          type: string
+          description: Unique order identifier
+          example: ord_1234567890
+        domain:
+          type: string
+          description: The domain that was purchased
+          example: example.com
+        charged_total_usd:
+          type: number
+          format: float
+          description: Total amount charged in USD
+          example: 12.99
+        message:
+          type: string
+          description: Additional information about the purchase
+          example: Domain successfully registered
+
+    HealthResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+          description: Health status indicator
+          example: true
+        status:
+          type: string
+          description: Status message
+          example: ok
+        timestamp:
+          type: string
+          format: date-time
+          description: Current server timestamp
+          example: '2025-10-20T00:00:00.000Z'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: Invalid API key
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+
+paths:
+  /api/health:
+    get:
+      summary: Health Check
+      description: Check if the API is operational
+      operationId: healthCheck
+      security: []
+      tags:
+        - Monitoring
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                ok: true
+                status: ok
+                timestamp: '2025-10-20T00:00:00.000Z'
+
+  /api/search:
+    post:
+      summary: Search for Available Domains
+      description: Search for available domain names based on a prompt and optional TLD filters
+      operationId: searchDomains
+      security: []
+      tags:
+        - Domains
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            example:
+              prompt: AI chatbot for healthcare
+              tlds: [com, io, app]
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+              example:
+                domains:
+                  - domain: healthchatai.com
+                    available: true
+                    price_usd: 12.99
+                    premium: false
+                  - domain: healthchatai.io
+                    available: true
+                    price_usd: 39.99
+                    premium: false
+                  - domain: healthchatai.app
+                    available: false
+                    price_usd: 0
+                    premium: false
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Validation error
+                details:
+                  prompt: Prompt is required
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/buy:
+    post:
+      summary: Purchase a Domain
+      description: Purchase an available domain name (requires authentication)
+      operationId: buyDomain
+      tags:
+        - Domains
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BuyRequest'
+            example:
+              domain: example.com
+              confirm_code: CONFIRM_PURCHASE
+      responses:
+        '200':
+          description: Purchase result (may indicate success or failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuyResponse'
+              examples:
+                success:
+                  summary: Successful purchase
+                  value:
+                    status: success
+                    order_id: ord_1234567890
+                    domain: example.com
+                    charged_total_usd: 12.99
+                    message: Domain successfully registered
+                unavailable:
+                  summary: Domain unavailable
+                  value:
+                    status: unavailable
+                    order_id: ord_1234567891
+                    domain: example.com
+                    charged_total_usd: 0
+                    message: Domain is not available for purchase
+                daily_limit:
+                  summary: Daily spending limit exceeded
+                  value:
+                    status: daily_limit
+                    order_id: ord_1234567892
+                    domain: example.com
+                    charged_total_usd: 0
+                    message: Daily spend limit exceeded
+        '401':
+          description: Unauthorized - invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Invalid API key
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Validation error
+                details:
+                  domain: Domain is required
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Rate limit exceeded
+                details:
+                  retry_after_seconds: 30
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+tags:
+  - name: Monitoring
+    description: Health and monitoring endpoints
+  - name: Domains
+    description: Domain search and registration operations
